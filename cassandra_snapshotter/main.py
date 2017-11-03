@@ -64,6 +64,7 @@ def run_backup(args):
         exclude_tables=args.exclude_tables,
         reduced_redundancy=args.reduced_redundancy,
         rate_limit=args.rate_limit,
+        snapshotter_agent_path=args.snapshotter_agent_path,
         quiet=args.quiet
     )
 
@@ -242,6 +243,11 @@ def main():
         '--rate-limit',
         default=0,
         help="Limit the upload speed to S3 (by using 'pv'). Value expressed in kilobytes (*1024)")
+
+    backup_parser.add_argument(
+        '--snapshotter-agent-path',
+        default='cassandra-snapshotter-agent',
+        help="Path to cassandra-snapshotter-agent")
 
     backup_parser.add_argument(
         '--quiet',

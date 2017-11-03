@@ -253,6 +253,7 @@ class BackupWorker(object):
                  s3_connection_host, cassandra_conf_path, use_sudo,
                  nodetool_path, cassandra_bin_dir, cqlsh_user, cqlsh_password,
                  backup_schema, buffer_size, exclude_tables, rate_limit, quiet,
+                 snapshotter_agent_path='cassandra-snapshotter-agent',
                  connection_pool_size=12, reduced_redundancy=False):
         self.aws_secret_access_key = aws_secret_access_key
         self.aws_access_key_id = aws_access_key_id
@@ -261,6 +262,7 @@ class BackupWorker(object):
         self.s3_connection_host = s3_connection_host
         self.cassandra_conf_path = cassandra_conf_path
         self.nodetool_path = nodetool_path or "{!s}/nodetool".format(cassandra_bin_dir)
+        self.snapshotter_agent_path = snapshotter_agent_path
         self.cqlsh_path = "{!s}/cqlsh".format(cassandra_bin_dir)
         self.cqlsh_user = cqlsh_user
         self.cqlsh_password = cqlsh_password
@@ -283,7 +285,7 @@ class BackupWorker(object):
         prefix = '/'.join(snapshot.base_path.split('/') + [self.get_current_node_hostname()])
 
         manifest_path = '/tmp/backupmanifest'
-        manifest_command = "cassandra-snapshotter-agent " \
+        manifest_command = "%(agent_path)s " \
                            "%(incremental_backups)s create-upload-manifest " \
                            "--manifest_path=%(manifest_path)s " \
                            "--snapshot_name=%(snapshot_name)s " \
@@ -292,6 +294,7 @@ class BackupWorker(object):
                            "--conf_path=%(conf_path)s " \
                            "--exclude_tables=%(exclude_tables)s"
         cmd = manifest_command % dict(
+            agent_path=self.snapshotter_agent_path,
             manifest_path=manifest_path,
             snapshot_name=snapshot.name,
             snapshot_keyspaces=','.join(snapshot.keyspaces or ''),
@@ -305,7 +308,7 @@ class BackupWorker(object):
         else:
             run(cmd)
 
-        upload_command = "cassandra-snapshotter-agent %(incremental_backups)s " \
+        upload_command = "%(agent_path)s %(incremental_backups)s " \
                          "put " \
                          "--s3-bucket-name=%(bucket)s " \
                          "--s3-bucket-region=%(s3_bucket_region)s %(s3_ssenc)s " \
@@ -334,6 +337,7 @@ class BackupWorker(object):
             prefix=prefix,
             key=self.aws_access_key_id,
             secret=self.aws_secret_access_key,
+            agent_path=self.snapshotter_agent_path,
             manifest=manifest_path,
             bufsize=self.buffer_size,
             rate_limit=self.rate_limit,
