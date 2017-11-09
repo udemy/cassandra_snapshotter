@@ -194,7 +194,7 @@ def create_upload_manifest(
         keyspace_globs = ['*']
 
     if snapshot_table:
-        table_glob = snapshot_table
+        table_glob = snapshot_table + '[-[A-Za-z0-9]*'
     else:
         table_glob = '*'
 
