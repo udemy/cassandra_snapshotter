@@ -160,7 +160,7 @@ class RestoreWorker(object):
             shutil.rmtree(keyspace_path)
 
         for table in tables:
-            path = "./{!s}/{!s}".format(keyspace_path, table)
+            path = "{!s}/{!s}".format(keyspace_path, table)
             if not os.path.exists(path):
                 os.makedirs(path)
 
@@ -189,8 +189,9 @@ class RestoreWorker(object):
 
     def _download_key(self, key):
         r = self.keyspace_table_matcher.search(key.name)
-        filename = "./{!s}/{!s}/{!s}_{!s}".format(
-            r.group(2), r.group(3),
+        keyspace_path = "/".join([self.cassandra_data_dir, "data", r.group(2)])
+        filename = "{!s}/{!s}/{!s}_{!s}".format(
+            keyspace_path, r.group(3),
             key.name.split('/')[2], key.name.split('/')[-1])
 
         if filename.endswith('.lzo'):
