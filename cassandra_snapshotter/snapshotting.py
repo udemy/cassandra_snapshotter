@@ -17,6 +17,7 @@ from fabric.api import (env, execute, hide, run, sudo)
 from fabric.context_managers import settings
 from multiprocessing.dummy import Pool
 from cassandra_snapshotter.utils import decompression_pipe
+from functools import partial
 
 
 class Snapshot(object):
@@ -114,6 +115,7 @@ class RestoreWorker(object):
             table=%(table)s" % dict(keyspace=keyspace, table=table))
         logging.info("From hosts: %(hosts)s to: %(target_hosts)s" % dict(
             hosts=', '.join(hosts), target_hosts=', '.join(target_hosts)))
+        logging.info("Using snapshot: s3_path=%(base_path)s" % dict(base_path=self.snapshot.base_path))
         if not table:
             table = ".*?"
 
@@ -124,33 +126,39 @@ class RestoreWorker(object):
             hosts='|'.join(hosts), keyspace=keyspace, table=table)
         self.keyspace_table_matcher = re.compile(matcher_string)
 
-        keys = []
-        tables = set()
 
-        for k in bucket.list(self.snapshot.base_path):
-            r = self.keyspace_table_matcher.search(k.name)
-            if not r:
-                continue
+        for host in hosts:
+            logging.info("Processing host=%(host)s" % dict(host=host))
 
-            tables.add(r.group(3))
-            keys.append(k)
+            keys = []
+            tables = set()
 
-        keyspace_path = "/".join([self.cassandra_data_dir, "data", keyspace])
-        self._delete_old_dir_and_create_new(keyspace_path, tables)
-        total_size = reduce(lambda s, k: s + k.size, keys, 0)
+            s3_host_path = "/".join([self.snapshot.base_path, host])
+            for k in bucket.list(s3_host_path):
+                r = self.keyspace_table_matcher.search(k.name)
+                if not r:
+                    continue
 
-        logging.info("Found %(files_count)d files, with total size \
-            of %(size)s." % dict(files_count=len(keys),
-                                 size=self._human_size(total_size)))
-        print("Found %(files_count)d files, with total size \
-            of %(size)s." % dict(files_count=len(keys),
-                                 size=self._human_size(total_size)))
+                tables.add(r.group(3))
+                keys.append(k)
 
-        self._download_keys(keys, total_size)
 
-        logging.info("Finished downloading...")
+            keyspace_path = os.path.join(self.cassandra_data_dir, host, keyspace)
+            self._delete_old_dir_and_create_new(keyspace_path, tables)
+            total_size = reduce(lambda s, k: s + k.size, keys, 0)
 
-        self._run_sstableloader(keyspace_path, tables, target_hosts, self.cassandra_bin_dir)
+            logging.info("Found %(files_count)d files, with total size \
+                of %(size)s." % dict(files_count=len(keys),
+                                     size=self._human_size(total_size)))
+            print("Found %(files_count)d files, with total size \
+                of %(size)s." % dict(files_count=len(keys),
+                                     size=self._human_size(total_size)))
+
+            self._download_keys(keyspace_path, keys, total_size)
+
+            logging.info("Finished downloading...")
+
+            self._run_sstableloader(keyspace_path, tables, target_hosts, self.cassandra_bin_dir)
 
     def _delete_old_dir_and_create_new(self, keyspace_path, tables):
 
@@ -164,7 +172,7 @@ class RestoreWorker(object):
             if not os.path.exists(path):
                 os.makedirs(path)
 
-    def _download_keys(self, keys, total_size, pool_size=5):
+    def _download_keys(self, keyspace_path, keys, total_size, pool_size=5):
         logging.info("Starting to download...")
 
         progress_string = ""
@@ -172,7 +180,7 @@ class RestoreWorker(object):
 
         thread_pool = Pool(pool_size)
 
-        for size in thread_pool.imap(self._download_key, keys):
+        for size in thread_pool.imap(partial(self._download_key, keyspace_path), keys):
             old_width = len(progress_string)
             read_bytes += size
             progress_string = "{!s} / {!s} ({:.2f})".format(
@@ -187,12 +195,11 @@ class RestoreWorker(object):
 
             sys.stderr.write(progress_string)
 
-    def _download_key(self, key):
+    def _download_key(self, keyspace_path, key):
         r = self.keyspace_table_matcher.search(key.name)
-        keyspace_path = "/".join([self.cassandra_data_dir, "data", r.group(2)])
-        filename = "{!s}/{!s}/{!s}_{!s}".format(
+        filename = "{!s}/{!s}/{!s}".format(
             keyspace_path, r.group(3),
-            key.name.split('/')[2], key.name.split('/')[-1])
+            key.name.split('/')[-1])
 
         if filename.endswith('.lzo'):
             filename = re.sub('\.lzo$', '', filename)
